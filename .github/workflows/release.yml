@@ -1,0 +1,77 @@
+name: Build and Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate icons
+        run: npm run icons
+
+      - name: Build extension
+        run: npm run build
+
+      - name: Get package version
+        id: package_version
+        run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
+
+      - name: Get short SHA
+        id: short_sha
+        run: echo "sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Create ZIP archive
+        run: |
+          cd dist
+          zip -r ../smart-fill-v${{ steps.package_version.outputs.version }}-${{ steps.short_sha.outputs.sha }}.zip .
+
+      - name: Delete existing release (if exists)
+        run: |
+          gh release delete latest --yes || true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Smart Fill v${{ steps.package_version.outputs.version }} (Build ${{ steps.short_sha.outputs.sha }})
+          body: |
+            ## Smart Fill Chrome Extension
+
+            **Version:** ${{ steps.package_version.outputs.version }}
+            **Commit:** ${{ github.sha }}
+
+            ### Installation
+            1. Download `smart-fill-v${{ steps.package_version.outputs.version }}-${{ steps.short_sha.outputs.sha }}.zip`
+            2. Extract the ZIP file
+            3. Open Chrome and go to `chrome://extensions`
+            4. Enable "Developer mode"
+            5. Click "Load unpacked" and select the extracted folder
+
+            ---
+            *Auto-generated build from commit ${{ steps.short_sha.outputs.sha }}*
+          files: smart-fill-v${{ steps.package_version.outputs.version }}-${{ steps.short_sha.outputs.sha }}.zip
+          prerelease: false
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

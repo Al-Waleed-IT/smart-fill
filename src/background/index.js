@@ -52,14 +52,20 @@ async function callOpenAI(fields, settings) {
       messages: [
         {
           role: 'system',
-          content: `You are a form-filling assistant. Given form fields and user profile data, generate appropriate values for each field. Return ONLY a valid JSON object where keys are field identifiers (use the "id" or "name" property) and values are the suggested form values. Do not include any explanation, markdown formatting, or code blocks.`
+          content: `You are a form-filling assistant. Given form fields and user profile data, generate appropriate values for each field. Return ONLY a valid JSON object where keys are field identifiers (use the "id" or "name" property) and values are the suggested form values. Do not include any explanation, markdown formatting, or code blocks.
+
+IMPORTANT: Generate VARIED and REALISTIC data each time. For fields not in the user profile:
+- Use different realistic names, emails, phone numbers, addresses each generation
+- Vary product names, descriptions, prices, quantities realistically
+- Make each generation feel like a different real-world entry
+- Don't repeat the same placeholder values - be creative but realistic`
         },
         {
           role: 'user',
           content: prompt
         }
       ],
-      temperature: 0.3
+      temperature: 0.8
     })
   })
 
@@ -104,13 +110,21 @@ async function callGemini(fields, settings) {
           {
             parts: [
               {
-                text: `You are a form-filling assistant. Given form fields and user profile data, generate appropriate values for each field. Return ONLY a valid JSON object where keys are field identifiers (use the "id" or "name" property) and values are the suggested form values. Do not include any explanation, markdown formatting, or code blocks.\n\n${prompt}`
+                text: `You are a form-filling assistant. Given form fields and user profile data, generate appropriate values for each field. Return ONLY a valid JSON object where keys are field identifiers (use the "id" or "name" property) and values are the suggested form values. Do not include any explanation, markdown formatting, or code blocks.
+
+IMPORTANT: Generate VARIED and REALISTIC data each time. For fields not in the user profile:
+- Use different realistic names, emails, phone numbers, addresses each generation
+- Vary product names, descriptions, prices, quantities realistically
+- Make each generation feel like a different real-world entry
+- Don't repeat the same placeholder values - be creative but realistic
+
+${prompt}`
               }
             ]
           }
         ],
         generationConfig: {
-          temperature: 0.3
+          temperature: 0.9
         }
       })
     }
@@ -149,6 +163,10 @@ function buildPrompt(fields, userProfile) {
     }
   }).filter(f => f.label) // Only include fields with labels
 
+  // Generate random seed for variation
+  const randomSeed = Math.random().toString(36).substring(2, 10)
+  const timestamp = Date.now()
+
   return `
 User Profile Data:
 ${JSON.stringify(userProfile || {}, null, 2)}
@@ -156,16 +174,20 @@ ${JSON.stringify(userProfile || {}, null, 2)}
 Form Fields to Fill:
 ${JSON.stringify(simplifiedFields, null, 2)}
 
+RANDOMIZATION SEED: ${randomSeed}-${timestamp}
+(Use this seed to ensure unique, varied data generation - pick different names, values, quantities each time)
+
 INSTRUCTIONS:
 1. For each form field, use the "key" value as the JSON key in your response
 2. Match user profile data to appropriate fields based on the field's "label"
-3. For fields not in user profile, generate realistic sample data appropriate for the field type
-4. For select fields, choose from the available "options" (use the option value or text)
+3. For fields not in user profile, generate UNIQUE realistic sample data - vary names, numbers, descriptions
+4. For select fields, randomly choose from the available "options" (use the option value or text)
 5. Skip search fields or fields that don't need filling
 6. Return ONLY a valid JSON object, no markdown, no explanation
+7. IMPORTANT: Generate different values each time - use varied realistic data, not repetitive placeholders
 
 Example response format:
-{"Product Name *": "Paracetamol 500mg", "Generic Name": "Paracetamol", "Category *": "Medicines"}
+{"Product Name *": "Ibuprofen 200mg", "Generic Name": "Ibuprofen", "Category *": "Pain Relief"}
 `
 }
 

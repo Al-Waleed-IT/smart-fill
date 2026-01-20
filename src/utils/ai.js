@@ -29,14 +29,20 @@ async function callOpenAI(formFields, userProfile, settings) {
       messages: [
         {
           role: 'system',
-          content: `You are a form-filling assistant. Given form fields and user profile data, generate appropriate values for each field. Return ONLY a valid JSON object where keys are field identifiers and values are the suggested form values. Do not include any explanation or markdown formatting.`
+          content: `You are a form-filling assistant. Given form fields and user profile data, generate appropriate values for each field. Return ONLY a valid JSON object where keys are field identifiers and values are the suggested form values. Do not include any explanation or markdown formatting.
+
+IMPORTANT: Generate VARIED and REALISTIC data each time. For fields not in the user profile:
+- Use different realistic names, emails, phone numbers, addresses each generation
+- Vary product names, descriptions, prices, quantities realistically
+- Make each generation feel like a different real-world entry
+- Don't repeat the same placeholder values - be creative but realistic`
         },
         {
           role: 'user',
           content: prompt
         }
       ],
-      temperature: 0.3
+      temperature: 0.8
     })
   })
 
@@ -79,13 +85,21 @@ async function callGemini(formFields, userProfile, settings) {
           {
             parts: [
               {
-                text: `You are a form-filling assistant. Given form fields and user profile data, generate appropriate values for each field. Return ONLY a valid JSON object where keys are field identifiers and values are the suggested form values. Do not include any explanation or markdown formatting.\n\n${prompt}`
+                text: `You are a form-filling assistant. Given form fields and user profile data, generate appropriate values for each field. Return ONLY a valid JSON object where keys are field identifiers and values are the suggested form values. Do not include any explanation or markdown formatting.
+
+IMPORTANT: Generate VARIED and REALISTIC data each time. For fields not in the user profile:
+- Use different realistic names, emails, phone numbers, addresses each generation
+- Vary product names, descriptions, prices, quantities realistically
+- Make each generation feel like a different real-world entry
+- Don't repeat the same placeholder values - be creative but realistic
+
+${prompt}`
               }
             ]
           }
         ],
         generationConfig: {
-          temperature: 0.3
+          temperature: 0.9
         }
       })
     }
@@ -112,6 +126,10 @@ async function callGemini(formFields, userProfile, settings) {
 }
 
 function buildPrompt(formFields, userProfile) {
+  // Generate random seed for variation
+  const randomSeed = Math.random().toString(36).substring(2, 10)
+  const timestamp = Date.now()
+
   return `
 User Profile:
 ${JSON.stringify(userProfile, null, 2)}
@@ -119,6 +137,9 @@ ${JSON.stringify(userProfile, null, 2)}
 Form Fields to fill:
 ${JSON.stringify(formFields, null, 2)}
 
-Generate appropriate values for each form field based on the user profile. For fields not covered by the profile, generate reasonable placeholder values or leave empty if inappropriate to guess.
+RANDOMIZATION SEED: ${randomSeed}-${timestamp}
+(Use this seed to ensure unique, varied data generation)
+
+Generate appropriate values for each form field based on the user profile. For fields not covered by the profile, generate UNIQUE and VARIED realistic values each time - use different names, numbers, descriptions. Never repeat the same placeholder data.
 `
 }

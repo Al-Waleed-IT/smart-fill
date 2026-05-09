@@ -48,6 +48,7 @@ function scanFormFields() {
     'input[type="number"]',
     'input[type="url"]',
     'input[type="search"]',
+    'input[type="password"]',
     'input:not([type])',
     'textarea',
     'select'
@@ -56,8 +57,8 @@ function scanFormFields() {
   const elements = document.querySelectorAll(selectors.join(', '))
 
   elements.forEach((el, index) => {
-    // Skip hidden, disabled, or password fields
-    if (el.type === 'hidden' || el.type === 'password' || el.disabled || !isVisible(el)) {
+    // Skip hidden or disabled fields (password fields are now included)
+    if (el.type === 'hidden' || el.disabled || !isVisible(el)) {
       return
     }
 
@@ -70,7 +71,8 @@ function scanFormFields() {
       autocomplete: el.autocomplete || '',
       required: el.required,
       tagName: el.tagName.toLowerCase(),
-      index: index
+      index: index,
+      context: getFieldContext(el)
     }
 
     // For select elements, include options
@@ -86,6 +88,26 @@ function scanFormFields() {
 
   console.log('Smart Fill: Scanned fields:', fields)
   return fields
+}
+
+// Collect surrounding context that helps AI identify search/filter/pagination widgets
+function getFieldContext(element) {
+  const ctx = {}
+
+  const form = element.closest('form')
+  if (form) {
+    ctx.formRole = form.getAttribute('role') || ''
+    ctx.formAction = form.getAttribute('action') || ''
+    ctx.formName = form.getAttribute('name') || form.id || ''
+  }
+
+  const searchAncestor = element.closest('[role="search"], [class*="search" i], [class*="filter" i], [class*="pagination" i], [class*="toolbar" i], [class*="datatable" i], [class*="data-table" i]')
+  if (searchAncestor) {
+    ctx.ancestorHint = (searchAncestor.getAttribute('class') || '') + ' ' + (searchAncestor.getAttribute('role') || '')
+    ctx.ancestorHint = ctx.ancestorHint.trim().slice(0, 120)
+  }
+
+  return ctx
 }
 
 // Get the label for a form field
@@ -166,12 +188,13 @@ function getAllFillableElements() {
     'input[type="number"]',
     'input[type="url"]',
     'input[type="search"]',
+    'input[type="password"]',
     'input:not([type])',
     'textarea',
     'select'
   ]
   return Array.from(document.querySelectorAll(selectors.join(', ')))
-    .filter(el => el.type !== 'hidden' && el.type !== 'password' && !el.disabled && isVisible(el))
+    .filter(el => el.type !== 'hidden' && !el.disabled && isVisible(el))
 }
 
 // Fill form fields with AI-generated data

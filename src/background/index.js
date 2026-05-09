@@ -10,14 +10,45 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 })
 
+const DEFAULT_PASSWORD = 'SmartFill@123'
+
 async function handleGenerateAndFill(fields) {
   const settings = await getSettings()
 
+  // Password fields are filled locally with the user's configured password
+  // so the real password is never sent to OpenAI/Gemini.
+  const passwordFields = fields.filter(f => f.type === 'password')
+  const fieldsForAI = fields.filter(f => f.type !== 'password')
+
+  let aiResult
   if (settings.provider === 'openai') {
-    return await callOpenAI(fields, settings)
+    aiResult = await callOpenAI(fieldsForAI, settings)
   } else {
-    return await callGemini(fields, settings)
+    aiResult = await callGemini(fieldsForAI, settings)
   }
+
+  if (aiResult && aiResult.success) {
+    aiResult.data = injectPasswordValues(aiResult.data || {}, passwordFields, settings)
+  }
+  return aiResult
+}
+
+function injectPasswordValues(data, passwordFields, settings) {
+  if (!passwordFields.length) return data
+  const customPassword = settings?.userProfile?.password
+  const password = customPassword && customPassword.length > 0 ? customPassword : DEFAULT_PASSWORD
+
+  passwordFields.forEach((field, index) => {
+    const key = field.id || field.name || field.label || `field_${field.index ?? index}`
+    data[key] = password
+  })
+  return data
+}
+
+function sanitizeProfileForAI(userProfile) {
+  if (!userProfile) return {}
+  const { password, ...rest } = userProfile
+  return rest
 }
 
 async function getSettings() {
@@ -39,7 +70,7 @@ async function callOpenAI(fields, settings) {
     throw new Error('OpenAI API key not configured')
   }
 
-  const prompt = buildPrompt(fields, settings.userProfile)
+  const prompt = buildPrompt(fields, sanitizeProfileForAI(settings.userProfile))
 
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -52,7 +83,7 @@ async function callOpenAI(fields, settings) {
       messages: [
         {
           role: 'system',
-          content: `You are a form-filling assistant. Given form fields and user profile data, generate appropriate values for each field. Return ONLY a valid JSON object where keys are field identifiers (use the "id" or "name" property) and values are the suggested form values. Do not include any explanation, markdown formatting, or code blocks.
+          content: `You are a form-filling assistant. Given form fields and user profile data, generate appropriate values for each field. Return ONLY a valid JSON object where keys are field identifiers (use the "key" value provided for each field) and values are the suggested form values. Do not include any explanation, markdown formatting, or code blocks.
 
 IMPORTANT: Generate VARIED and REALISTIC data each time. For fields not in the user profile:
 - Use different realistic names, emails, phone numbers, addresses each generation
@@ -93,7 +124,7 @@ async function callGemini(fields, settings) {
     throw new Error('Gemini API key not configured')
   }
 
-  const prompt = buildPrompt(fields, settings.userProfile)
+  const prompt = buildPrompt(fields, sanitizeProfileForAI(settings.userProfile))
 
   // Use the selected Gemini model or default to gemini-2.0-flash
   const geminiModel = settings.geminiModel || 'gemini-2.0-flash-exp'
@@ -110,7 +141,7 @@ async function callGemini(fields, settings) {
           {
             parts: [
               {
-                text: `You are a form-filling assistant. Given form fields and user profile data, generate appropriate values for each field. Return ONLY a valid JSON object where keys are field identifiers (use the "id" or "name" property) and values are the suggested form values. Do not include any explanation, markdown formatting, or code blocks.
+                text: `You are a form-filling assistant. Given form fields and user profile data, generate appropriate values for each field. Return ONLY a valid JSON object where keys are field identifiers (use the "key" value provided for each field) and values are the suggested form values. Do not include any explanation, markdown formatting, or code blocks.
 
 IMPORTANT: Generate VARIED and REALISTIC data each time. For fields not in the user profile:
 - Use different realistic names, emails, phone numbers, addresses each generation
@@ -152,16 +183,20 @@ ${prompt}`
 function buildPrompt(fields, userProfile) {
   // Create a simplified field list with clear identifiers
   const simplifiedFields = fields.map((field, index) => {
-    // Determine the best identifier for this field
     const identifier = field.id || field.name || field.label || `field_${index}`
     return {
       key: identifier,
       label: field.label,
       type: field.type,
+      tagName: field.tagName,
+      name: field.name,
+      id: field.id,
       placeholder: field.placeholder,
-      options: field.options // for select fields
+      autocomplete: field.autocomplete,
+      context: field.context,
+      options: field.options
     }
-  }).filter(f => f.label) // Only include fields with labels
+  }).filter(f => f.label || f.placeholder || f.name || f.id)
 
   // Generate random seed for variation
   const randomSeed = Math.random().toString(36).substring(2, 10)
@@ -171,18 +206,27 @@ function buildPrompt(fields, userProfile) {
 User Profile Data:
 ${JSON.stringify(userProfile || {}, null, 2)}
 
-Form Fields to Fill:
+Form Fields:
 ${JSON.stringify(simplifiedFields, null, 2)}
 
 RANDOMIZATION SEED: ${randomSeed}-${timestamp}
 (Use this seed to ensure unique, varied data generation - pick different names, values, quantities each time)
 
+EXCLUSION RULES — DO NOT generate values for these (omit their keys entirely from the response):
+- Search inputs: type="search", or label/placeholder/name/id containing words like "search", "find", "query", "lookup", or context/ancestorHint mentioning "search"
+- Filter inputs and filter dropdowns: label/placeholder/name/id containing "filter", "filter by", "refine", or context/ancestorHint mentioning "filter"
+- Sort dropdowns: label/placeholder/name/id containing "sort", "sort by", "order by"
+- Pagination dropdowns: label/placeholder/name/id like "per page", "items per page", "rows per page", "page size", "show entries", or options that are only numeric counts (e.g. 10/25/50/100) used for paging
+- Any control inside a toolbar/datatable/list-controls region (see context.ancestorHint) used to navigate or refine results rather than submit data
+
+These controls operate the page UI; filling them would change the user's view, not submit data. Skip them.
+
 INSTRUCTIONS:
-1. For each form field, use the "key" value as the JSON key in your response
-2. Match user profile data to appropriate fields based on the field's "label"
+1. For each remaining form field, use the "key" value as the JSON key in your response
+2. Match user profile data to appropriate fields based on label/name/id/placeholder/autocomplete
 3. For fields not in user profile, generate UNIQUE realistic sample data - vary names, numbers, descriptions
-4. For select fields, randomly choose from the available "options" (use the option value or text)
-5. Skip search fields or fields that don't need filling
+4. For select fields (excluding the pagination/filter/sort cases above), randomly choose from the available "options" (use the option value)
+5. For textarea fields, generate appropriate longer-form realistic text (a few sentences) — do not skip them
 6. Return ONLY a valid JSON object, no markdown, no explanation
 7. IMPORTANT: Generate different values each time - use varied realistic data, not repetitive placeholders
 

@@ -31,9 +31,18 @@ export const storage = {
         zipCode: '',
         country: '',
         company: '',
-        jobTitle: ''
+        jobTitle: '',
+        password: ''
       }
     }
+  },
+
+  // Fallback used when the user has not configured a password
+  DEFAULT_PASSWORD: 'SmartFill@123',
+
+  getPassword(settings) {
+    const custom = settings?.userProfile?.password
+    return custom && custom.length > 0 ? custom : this.DEFAULT_PASSWORD
   },
 
   async saveSettings(settings) {

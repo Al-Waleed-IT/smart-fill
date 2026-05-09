@@ -89,7 +89,9 @@ IMPORTANT: Generate VARIED and REALISTIC data each time. For fields not in the u
 - Use different realistic names, emails, phone numbers, addresses each generation
 - Vary product names, descriptions, prices, quantities realistically
 - Make each generation feel like a different real-world entry
-- Don't repeat the same placeholder values - be creative but realistic`
+- Don't repeat the same placeholder values - be creative but realistic
+
+ALWAYS fill textarea fields (tagName="textarea" or type="textarea") with realistic multi-sentence content (2-4 sentences) appropriate to the field's label/placeholder (e.g. description, comments, bio, message, notes, address). Never omit a textarea from the response unless it is explicitly a search/filter/sort/pagination control.`
         },
         {
           role: 'user',
@@ -148,6 +150,8 @@ IMPORTANT: Generate VARIED and REALISTIC data each time. For fields not in the u
 - Vary product names, descriptions, prices, quantities realistically
 - Make each generation feel like a different real-world entry
 - Don't repeat the same placeholder values - be creative but realistic
+
+ALWAYS fill textarea fields (tagName="textarea" or type="textarea") with realistic multi-sentence content (2-4 sentences) appropriate to the field's label/placeholder (e.g. description, comments, bio, message, notes, address). Never omit a textarea from the response unless it is explicitly a search/filter/sort/pagination control.
 
 ${prompt}`
               }
@@ -226,12 +230,12 @@ INSTRUCTIONS:
 2. Match user profile data to appropriate fields based on label/name/id/placeholder/autocomplete
 3. For fields not in user profile, generate UNIQUE realistic sample data - vary names, numbers, descriptions
 4. For select fields (excluding the pagination/filter/sort cases above), randomly choose from the available "options" (use the option value)
-5. For textarea fields, generate appropriate longer-form realistic text (a few sentences) — do not skip them
+5. For textarea fields, ALWAYS produce 2-4 sentences of realistic content (e.g. product description, comments, bio, message, notes). Do NOT leave them blank, do NOT skip them, and do NOT use one-word answers
 6. Return ONLY a valid JSON object, no markdown, no explanation
 7. IMPORTANT: Generate different values each time - use varied realistic data, not repetitive placeholders
 
-Example response format:
-{"Product Name *": "Ibuprofen 200mg", "Generic Name": "Ibuprofen", "Category *": "Pain Relief"}
+Example response format (note the textarea value is multi-sentence):
+{"Product Name *": "Ibuprofen 200mg", "Generic Name": "Ibuprofen", "Category *": "Pain Relief", "description": "Fast-acting pain reliever suitable for headaches, muscle aches, and minor arthritis pain. Each tablet contains 200mg of ibuprofen. Take with food to reduce stomach upset."}
 `
 }
 

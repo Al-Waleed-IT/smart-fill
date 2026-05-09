@@ -91,7 +91,9 @@ IMPORTANT: Generate VARIED and REALISTIC data each time. For fields not in the u
 - Make each generation feel like a different real-world entry
 - Don't repeat the same placeholder values - be creative but realistic
 
-ALWAYS fill textarea fields (tagName="textarea" or type="textarea") with realistic multi-sentence content (2-4 sentences) appropriate to the field's label/placeholder (e.g. description, comments, bio, message, notes, address). Never omit a textarea from the response unless it is explicitly a search/filter/sort/pagination control.`
+ALWAYS fill textarea fields (tagName="textarea" or type="textarea") with realistic multi-sentence content (2-4 sentences) appropriate to the field's label/placeholder (e.g. description, comments, bio, message, notes, address). Never omit a textarea from the response unless it is explicitly a search/filter/sort/pagination control.
+
+ALWAYS fill select, radio, and checkbox-group fields by picking from their "options" array (use the option's "value" string). Never omit them and never invent values that don't appear in options. Single checkbox fields (type="checkbox") must be set to true unless their label clearly says to opt out.`
         },
         {
           role: 'user',
@@ -232,10 +234,18 @@ INSTRUCTIONS:
 4. For select fields (excluding the pagination/filter/sort cases above), choose ONE value from the field's "options" array — return that option's "value" string. Always pick an option that exists; never invent a value not present in options
 5. For radio fields (type="radio"), choose ONE value from the field's "options" — return that option's "value" string. Always pick an option that exists
 6. For checkbox-group fields (type="checkbox-group"), return an ARRAY of one or more "value" strings from the field's "options" (e.g. ["sports", "music"]). Pick at least one
-7. For single checkbox fields (type="checkbox"), return a boolean: true to check it (e.g. "I agree to terms", "Subscribe to newsletter"), or omit the key to leave it unchecked
+7. For single checkbox fields (type="checkbox"), ALWAYS return true — these are agreements, acknowledgments, opt-ins, "I agree to terms", "subscribe to newsletter", "I confirm", etc. and the form expects them checked to submit. Do NOT omit them. The only exception is a checkbox whose label clearly says to opt OUT (e.g. "Do NOT contact me") — in that case return false
 8. For textarea fields, ALWAYS produce 2-4 sentences of realistic content (e.g. product description, comments, bio, message, notes). Do NOT leave them blank, do NOT skip them, and do NOT use one-word answers
-9. Return ONLY a valid JSON object, no markdown, no explanation
-10. IMPORTANT: Generate different values each time - use varied realistic data, not repetitive placeholders
+9. For date/time inputs, use the input's required ISO format:
+   - type="date" → "YYYY-MM-DD" (e.g. "2024-03-15")
+   - type="datetime-local" → "YYYY-MM-DDTHH:MM" (e.g. "2024-03-15T09:30")
+   - type="time" → "HH:MM" (24-hour, e.g. "14:30")
+   - type="month" → "YYYY-MM"
+   - type="week" → "YYYY-Www" (e.g. "2024-W12")
+10. For type="color" return a 7-char hex value (e.g. "#3b82f6")
+11. For type="range" return a number within the field's min/max if provided, otherwise a sensible mid-range integer
+12. Return ONLY a valid JSON object, no markdown, no explanation
+13. IMPORTANT: Generate different values each time - use varied realistic data, not repetitive placeholders
 
 Example response format (textarea is multi-sentence; gender is a radio; interests is a checkbox-group; agree_terms is a single checkbox):
 {"Product Name *": "Ibuprofen 200mg", "Category *": "Pain Relief", "gender": "female", "interests": ["sports", "music"], "agree_terms": true, "description": "Fast-acting pain reliever suitable for headaches, muscle aches, and minor arthritis pain. Each tablet contains 200mg of ibuprofen. Take with food to reduce stomach upset."}

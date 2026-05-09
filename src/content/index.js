@@ -50,6 +50,13 @@ function scanFormFields() {
     'input[type="number"]',
     'input[type="url"]',
     'input[type="password"]',
+    'input[type="date"]',
+    'input[type="datetime-local"]',
+    'input[type="time"]',
+    'input[type="month"]',
+    'input[type="week"]',
+    'input[type="color"]',
+    'input[type="range"]',
     'input:not([type])',
     'textarea',
     'select'
@@ -69,6 +76,13 @@ function scanFormFields() {
       index,
       context: getFieldContext(el)
     }
+
+    if (el.min) field.min = el.min
+    if (el.max) field.max = el.max
+    if (el.step) field.step = el.step
+    if (el.pattern) field.pattern = el.pattern
+    if (el.maxLength > 0) field.maxLength = el.maxLength
+    if (el.minLength > 0) field.minLength = el.minLength
 
     if (el.tagName.toLowerCase() === 'select') {
       field.options = Array.from(el.options).map(opt => ({
@@ -156,23 +170,100 @@ function scanFormFields() {
   return fields
 }
 
-// Resolve a label for a radio/checkbox group via fieldset/legend or aria-labelledby
+// Resolve a label for a radio/checkbox group. Tries (in order):
+//  1. fieldset > legend
+//  2. role="radiogroup"/role="group" with aria-labelledby / aria-label
+//  3. The smallest common ancestor of all inputs sharing the name; from there,
+//     walk up to 5 levels looking for a sibling/child label-ish element that
+//     is NOT one of the per-option labels.
 function getRadioGroupLabel(element) {
   const fieldset = element.closest('fieldset')
   if (fieldset) {
     const legend = fieldset.querySelector('legend')
-    if (legend) return legend.textContent.trim()
+    if (legend) {
+      const text = legend.textContent.trim()
+      if (text) return text
+    }
   }
+
   const group = element.closest('[role="radiogroup"], [role="group"]')
   if (group) {
     const labelledBy = group.getAttribute('aria-labelledby')
     if (labelledBy) {
-      const labelEl = document.getElementById(labelledBy)
-      if (labelEl) return labelEl.textContent.trim()
+      const text = labelledBy.split(/\s+/)
+        .map(id => document.getElementById(id)?.textContent?.trim())
+        .filter(Boolean)
+        .join(' ')
+        .trim()
+      if (text) return text
     }
     const ariaLabel = group.getAttribute('aria-label')
     if (ariaLabel) return ariaLabel.trim()
   }
+
+  const name = element.name
+  const type = element.type
+  if (!name) return ''
+
+  let groupEls
+  try {
+    groupEls = Array.from(
+      document.querySelectorAll(`input[type="${type}"][name="${CSS.escape(name)}"]`)
+    )
+  } catch {
+    return ''
+  }
+  if (groupEls.length < 2) return ''
+
+  const groupIds = new Set(groupEls.map(el => el.id).filter(Boolean))
+  const isOptionLabel = (el) => {
+    if (!el) return true
+    const forId = el.getAttribute && el.getAttribute('for')
+    if (forId && groupIds.has(forId)) return true
+    return groupEls.some(r => el.contains && el.contains(r))
+  }
+  const looksLikeLabel = (el) => {
+    if (!el || !el.tagName) return false
+    if (el.tagName === 'LABEL' || el.tagName === 'LEGEND') return true
+    if (/^H[1-6]$/.test(el.tagName)) return true
+    return /(label|title|question|legend|prompt)/i.test(el.className || '')
+  }
+  const cleanText = (el) => (el.textContent || '').replace(/\s+/g, ' ').trim()
+
+  let container = element.parentElement
+  while (container && !groupEls.every(el => container.contains(el))) {
+    container = container.parentElement
+  }
+  if (!container) return ''
+
+  let scope = container
+  for (let depth = 0; depth < 5 && scope; depth++) {
+    // Label-ish elements among the first few children of scope
+    let scanned = 0
+    for (const child of scope.children) {
+      if (scanned >= 5) break
+      scanned++
+      if (!looksLikeLabel(child)) continue
+      if (isOptionLabel(child)) continue
+      const text = cleanText(child)
+      if (text && text.length < 200) return text
+    }
+
+    // Preceding siblings of scope
+    let prev = scope.previousElementSibling
+    let count = 0
+    while (prev && count < 4) {
+      if (looksLikeLabel(prev) && !isOptionLabel(prev)) {
+        const text = cleanText(prev)
+        if (text && text.length < 200) return text
+      }
+      prev = prev.previousElementSibling
+      count++
+    }
+
+    scope = scope.parentElement
+  }
+
   return ''
 }
 
@@ -276,6 +367,13 @@ function getAllFillableElements() {
     'input[type="password"]',
     'input[type="checkbox"]',
     'input[type="radio"]',
+    'input[type="date"]',
+    'input[type="datetime-local"]',
+    'input[type="time"]',
+    'input[type="month"]',
+    'input[type="week"]',
+    'input[type="color"]',
+    'input[type="range"]',
     'input:not([type])',
     'textarea',
     'select'

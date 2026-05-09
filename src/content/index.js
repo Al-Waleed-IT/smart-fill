@@ -41,7 +41,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // Scan all form fields on the page
 function scanFormFields() {
   const fields = []
-  const selectors = [
+
+  // 1. Single-value inputs, textareas, selects
+  const singleSelectors = [
     'input[type="text"]',
     'input[type="email"]',
     'input[type="tel"]',
@@ -52,14 +54,8 @@ function scanFormFields() {
     'textarea',
     'select'
   ]
-
-  const elements = document.querySelectorAll(selectors.join(', '))
-
-  elements.forEach((el, index) => {
-    // Skip hidden or disabled fields (password fields are now included)
-    if (el.type === 'hidden' || el.disabled || !isVisible(el)) {
-      return
-    }
+  document.querySelectorAll(singleSelectors.join(', ')).forEach((el, index) => {
+    if (el.type === 'hidden' || el.disabled || !isVisible(el)) return
 
     const field = {
       id: el.id || '',
@@ -70,11 +66,10 @@ function scanFormFields() {
       autocomplete: el.autocomplete || '',
       required: el.required,
       tagName: el.tagName.toLowerCase(),
-      index: index,
+      index,
       context: getFieldContext(el)
     }
 
-    // For select elements, include options
     if (el.tagName.toLowerCase() === 'select') {
       field.options = Array.from(el.options).map(opt => ({
         value: opt.value,
@@ -85,8 +80,100 @@ function scanFormFields() {
     fields.push(field)
   })
 
+  // 2. Radio groups — collapse all radios sharing a name into one field
+  const seenRadio = new Set()
+  document.querySelectorAll('input[type="radio"]').forEach((el, index) => {
+    if (el.disabled || !isVisible(el)) return
+    const name = el.name
+    if (!name || seenRadio.has(name)) return
+    seenRadio.add(name)
+
+    const groupEls = Array.from(document.querySelectorAll(`input[type="radio"][name="${CSS.escape(name)}"]`))
+      .filter(r => !r.disabled && isVisible(r))
+    if (!groupEls.length) return
+
+    fields.push({
+      id: groupEls[0].id || '',
+      name,
+      type: 'radio',
+      label: getRadioGroupLabel(groupEls[0]) || getFieldLabel(groupEls[0]),
+      placeholder: '',
+      autocomplete: groupEls[0].autocomplete || '',
+      required: groupEls.some(r => r.required),
+      tagName: 'input',
+      index,
+      context: getFieldContext(groupEls[0]),
+      options: groupEls.map(r => ({ value: r.value, text: getFieldLabel(r) || r.value }))
+    })
+  })
+
+  // 3. Checkboxes — group by name, or expose single ones as boolean fields
+  const seenCheckboxName = new Set()
+  document.querySelectorAll('input[type="checkbox"]').forEach((el, index) => {
+    if (el.disabled || !isVisible(el)) return
+    const name = el.name
+
+    if (name && seenCheckboxName.has(name)) return
+    if (name) seenCheckboxName.add(name)
+
+    const groupEls = name
+      ? Array.from(document.querySelectorAll(`input[type="checkbox"][name="${CSS.escape(name)}"]`))
+          .filter(c => !c.disabled && isVisible(c))
+      : [el]
+    if (!groupEls.length) return
+
+    if (groupEls.length > 1) {
+      fields.push({
+        id: groupEls[0].id || '',
+        name,
+        type: 'checkbox-group',
+        label: getRadioGroupLabel(groupEls[0]) || getFieldLabel(groupEls[0]),
+        placeholder: '',
+        autocomplete: '',
+        required: groupEls.some(c => c.required),
+        tagName: 'input',
+        index,
+        context: getFieldContext(groupEls[0]),
+        options: groupEls.map(c => ({ value: c.value, text: getFieldLabel(c) || c.value }))
+      })
+    } else {
+      fields.push({
+        id: el.id || '',
+        name: el.name || '',
+        type: 'checkbox',
+        label: getFieldLabel(el),
+        placeholder: '',
+        autocomplete: el.autocomplete || '',
+        required: el.required,
+        tagName: 'input',
+        index,
+        context: getFieldContext(el)
+      })
+    }
+  })
+
   console.log('Smart Fill: Scanned fields:', fields)
   return fields
+}
+
+// Resolve a label for a radio/checkbox group via fieldset/legend or aria-labelledby
+function getRadioGroupLabel(element) {
+  const fieldset = element.closest('fieldset')
+  if (fieldset) {
+    const legend = fieldset.querySelector('legend')
+    if (legend) return legend.textContent.trim()
+  }
+  const group = element.closest('[role="radiogroup"], [role="group"]')
+  if (group) {
+    const labelledBy = group.getAttribute('aria-labelledby')
+    if (labelledBy) {
+      const labelEl = document.getElementById(labelledBy)
+      if (labelEl) return labelEl.textContent.trim()
+    }
+    const ariaLabel = group.getAttribute('aria-label')
+    if (ariaLabel) return ariaLabel.trim()
+  }
+  return ''
 }
 
 // Collect surrounding context that helps AI identify search/filter/pagination widgets
@@ -187,6 +274,8 @@ function getAllFillableElements() {
     'input[type="number"]',
     'input[type="url"]',
     'input[type="password"]',
+    'input[type="checkbox"]',
+    'input[type="radio"]',
     'input:not([type])',
     'textarea',
     'select'
@@ -205,10 +294,25 @@ function fillFormFields(data) {
   }
 
   const elements = getAllFillableElements()
+  const groups = collectRadioCheckboxGroups()
   let filledCount = 0
 
   for (const [key, value] of Object.entries(data)) {
     if (value === null || value === undefined || value === '') continue
+
+    // Radio / checkbox-group fills are handled before generic findElement
+    // because findElement could otherwise pick a single radio/checkbox by
+    // name and toggle it incorrectly via Boolean(value).
+    const groupResult = fillRadioOrCheckboxGroup(key, value, groups)
+    if (groupResult.matched) {
+      if (groupResult.filled) {
+        console.log(`Smart Fill: Filled group "${key}" with "${JSON.stringify(value)}"`)
+        filledCount++
+      } else {
+        console.log(`Smart Fill: Matched group "${key}" but value "${value}" not found in options`)
+      }
+      continue
+    }
 
     let element = findElement(key, elements)
 
@@ -223,6 +327,130 @@ function fillFormFields(data) {
 
   console.log(`Smart Fill: Filled ${filledCount} fields`)
   return filledCount
+}
+
+// Build maps of visible radio and checkbox groups keyed by name
+function collectRadioCheckboxGroups() {
+  const radio = new Map()
+  const checkbox = new Map()
+
+  document.querySelectorAll('input[type="radio"]').forEach(el => {
+    if (el.disabled || !isVisible(el) || !el.name) return
+    if (!radio.has(el.name)) radio.set(el.name, [])
+    radio.get(el.name).push(el)
+  })
+
+  document.querySelectorAll('input[type="checkbox"]').forEach(el => {
+    if (el.disabled || !isVisible(el)) return
+    const key = el.name || (el.id ? `__id__${el.id}` : null)
+    if (!key) return
+    if (!checkbox.has(key)) checkbox.set(key, [])
+    checkbox.get(key).push(el)
+  })
+
+  return { radio, checkbox }
+}
+
+// Try to fill a radio group or checkbox group/single matching `key`.
+// Returns { matched: bool, filled: bool }.
+function fillRadioOrCheckboxGroup(key, value, groups) {
+  const matched = matchGroupName(key, groups)
+  if (!matched) return { matched: false, filled: false }
+
+  const inputs = matched.elements
+
+  if (matched.kind === 'radio') {
+    const target = matchGroupOption(inputs, value)
+    if (!target) return { matched: true, filled: false }
+    target.checked = true
+    fireGroupEvents(target)
+    flashGroupFeedback(target)
+    return { matched: true, filled: true }
+  }
+
+  // Single checkbox → boolean
+  if (inputs.length === 1) {
+    const truthy = isTruthyCheckboxValue(value)
+    if (inputs[0].checked !== truthy) {
+      inputs[0].checked = truthy
+      fireGroupEvents(inputs[0])
+    }
+    flashGroupFeedback(inputs[0])
+    return { matched: true, filled: true }
+  }
+
+  // Checkbox group → may be array of values, single value, or boolean-all
+  const values = Array.isArray(value) ? value : [value]
+  let any = false
+  for (const v of values) {
+    const target = matchGroupOption(inputs, v)
+    if (!target) continue
+    if (!target.checked) {
+      target.checked = true
+      fireGroupEvents(target)
+    }
+    flashGroupFeedback(target)
+    any = true
+  }
+  return { matched: true, filled: any }
+}
+
+function matchGroupName(key, { radio, checkbox }) {
+  const keyLower = String(key).toLowerCase().trim()
+  const tryMap = (map, kind) => {
+    if (map.has(key)) return { kind, name: key, elements: map.get(key) }
+    for (const [name, els] of map) {
+      if (name.toLowerCase() === keyLower) return { kind, name, elements: els }
+    }
+    for (const [name, els] of map) {
+      const nl = name.toLowerCase()
+      if (nl && (nl.includes(keyLower) || keyLower.includes(nl))) {
+        return { kind, name, elements: els }
+      }
+    }
+    for (const [name, els] of map) {
+      const lbl = (getRadioGroupLabel(els[0]) || getFieldLabel(els[0]))
+        .toLowerCase().replace(/\*/g, '').trim()
+      if (!lbl) continue
+      if (lbl === keyLower || lbl.includes(keyLower) || keyLower.includes(lbl)) {
+        return { kind, name, elements: els }
+      }
+    }
+    return null
+  }
+  return tryMap(radio, 'radio') || tryMap(checkbox, 'checkbox')
+}
+
+function matchGroupOption(inputs, value) {
+  const valueLower = String(value).toLowerCase().trim()
+  return inputs.find(el => {
+    const v = String(el.value || '').toLowerCase().trim()
+    const lbl = getFieldLabel(el).toLowerCase().trim()
+    return v === valueLower
+      || lbl === valueLower
+      || (v && (v.includes(valueLower) || valueLower.includes(v)))
+      || (lbl && (lbl.includes(valueLower) || valueLower.includes(lbl)))
+  })
+}
+
+function isTruthyCheckboxValue(value) {
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'number') return value !== 0
+  const s = String(value).toLowerCase().trim()
+  return ['true', 'yes', 'y', '1', 'on', 'checked', 'agree', 'accept'].includes(s)
+}
+
+function fireGroupEvents(el) {
+  el.dispatchEvent(new Event('input', { bubbles: true }))
+  el.dispatchEvent(new Event('change', { bubbles: true }))
+  el.dispatchEvent(new Event('click', { bubbles: true }))
+}
+
+function flashGroupFeedback(el) {
+  el.classList.add('smart-fill-filled')
+  el.style.transition = 'box-shadow 0.3s'
+  el.style.boxShadow = '0 0 0 2px rgba(34, 197, 94, 0.6)'
+  setTimeout(() => { el.style.boxShadow = '' }, 2000)
 }
 
 // Find element by various matching strategies

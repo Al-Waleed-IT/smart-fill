@@ -229,13 +229,16 @@ INSTRUCTIONS:
 1. For each remaining form field, use the "key" value as the JSON key in your response
 2. Match user profile data to appropriate fields based on label/name/id/placeholder/autocomplete
 3. For fields not in user profile, generate UNIQUE realistic sample data - vary names, numbers, descriptions
-4. For select fields (excluding the pagination/filter/sort cases above), randomly choose from the available "options" (use the option value)
-5. For textarea fields, ALWAYS produce 2-4 sentences of realistic content (e.g. product description, comments, bio, message, notes). Do NOT leave them blank, do NOT skip them, and do NOT use one-word answers
-6. Return ONLY a valid JSON object, no markdown, no explanation
-7. IMPORTANT: Generate different values each time - use varied realistic data, not repetitive placeholders
+4. For select fields (excluding the pagination/filter/sort cases above), choose ONE value from the field's "options" array — return that option's "value" string. Always pick an option that exists; never invent a value not present in options
+5. For radio fields (type="radio"), choose ONE value from the field's "options" — return that option's "value" string. Always pick an option that exists
+6. For checkbox-group fields (type="checkbox-group"), return an ARRAY of one or more "value" strings from the field's "options" (e.g. ["sports", "music"]). Pick at least one
+7. For single checkbox fields (type="checkbox"), return a boolean: true to check it (e.g. "I agree to terms", "Subscribe to newsletter"), or omit the key to leave it unchecked
+8. For textarea fields, ALWAYS produce 2-4 sentences of realistic content (e.g. product description, comments, bio, message, notes). Do NOT leave them blank, do NOT skip them, and do NOT use one-word answers
+9. Return ONLY a valid JSON object, no markdown, no explanation
+10. IMPORTANT: Generate different values each time - use varied realistic data, not repetitive placeholders
 
-Example response format (note the textarea value is multi-sentence):
-{"Product Name *": "Ibuprofen 200mg", "Generic Name": "Ibuprofen", "Category *": "Pain Relief", "description": "Fast-acting pain reliever suitable for headaches, muscle aches, and minor arthritis pain. Each tablet contains 200mg of ibuprofen. Take with food to reduce stomach upset."}
+Example response format (textarea is multi-sentence; gender is a radio; interests is a checkbox-group; agree_terms is a single checkbox):
+{"Product Name *": "Ibuprofen 200mg", "Category *": "Pain Relief", "gender": "female", "interests": ["sports", "music"], "agree_terms": true, "description": "Fast-acting pain reliever suitable for headaches, muscle aches, and minor arthritis pain. Each tablet contains 200mg of ibuprofen. Take with food to reduce stomach upset."}
 `
 }
 
